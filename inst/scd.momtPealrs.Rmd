@@ -91,7 +91,7 @@ pdat %>%
     y = "Percent with response",
     x = "Standard deviation of continuous characteristic",
     title = stringr::str_wrap("In logistic regression the percentage of patients with a binary outcome changes if the standard
-    deviation of continuous characteristic changes", 70)
+    deviation of a continuous characteristic changes", 70)
   )
 ```
 
