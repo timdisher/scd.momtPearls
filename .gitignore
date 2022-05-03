@@ -1,0 +1,29 @@
+# Ignore everything
+*
+
+# Except gitignore
+!.gitignore
+
+# Except R files
+!*.R
+!*.Rd
+!*.html
+!*.bib
+!*.md
+!*.Rmd
+!*.Rproj
+!*.Rprofile
+!*DESCRIPTION
+!*NAMESPACE
+!*.Rbuildignore
+!*renv.lock
+
+
+# For these projects, limited number of small image files
+!*.svg
+!*.png
+
+
+# Even if they are in sub-directories
+!*/
+.Rproj.user

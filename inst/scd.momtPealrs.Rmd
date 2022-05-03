@@ -1,0 +1,150 @@
+---
+title: "Re-weighting methods and SDs in Continuous Outcomes"
+output: 
+  flexdashboard::flex_dashboard:
+    storyboard: true
+    theme: readable
+    css: "style.css"
+    social: menu
+    source: embed
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+library(flexdashboard)
+library(svglite)
+library(dplyr)
+devtools::load_all()
+```
+
+
+### Out of balance
+<font size = 20> <center> Single arm trials are often imbalanced on key characteristics </center> </font>
+```{r ft.width = 8}
+dat <- data.frame(trial = c(rep("A",3), rep("B",3)),
+                  char = rep(c("sex","recep","age"),2),
+                  val = c(30, 20, 40,
+                          40, 40, 50),
+                  sd = c(NA, NA, 8, NA, NA, 5))
+
+
+format <- dat %>%
+  dplyr::mutate(
+      val = dplyr::case_when(char == "age" ~ glue::glue("{val} ({sd})"),
+                           TRUE ~  glue::glue("{val}%"))
+  ) %>% dplyr::select(-sd) %>%
+  tidyr::pivot_wider(names_from = "trial", values_from = "val") %>%
+  dplyr::mutate(
+    char = dplyr::case_when(char == "sex" ~ "Sex (Male)",
+                            char == "recep" ~ "Receptor Positive",
+                            TRUE ~ "Age (Mean, SD)"))
+
+format %>%
+  flextable::flextable() %>%
+  flextable::set_header_labels(
+   char = "Characteristics",
+   A = "Trial A",
+   B = "Trial B") %>%
+  flextable::fontsize(size = 25, part = "all") %>%
+  flextable::set_table_properties(layout = "autofit") %>%
+  flextable::theme_zebra(
+    odd_body = "#fff5e4",
+    odd_head = "#f1e8e3"
+  ) %>%
+  flextable::border_outer()
+
+```
+
+------
+
+Single arm trials are increasingly common in oncology and other therapeutic areas.
+Since these trials don't have a randomized comparator, treatment comparisons between
+two or more therapies usually need to adjust for differences in patient characteristics
+that can predict outcome. Propensity score methods, especially MAIC, are a common
+approach and their use is straightforward when characteristics just require 
+balance on percentages (eg, percent males). When patient characteristics are continuous, we
+need to consider whether to adjust to just the mean or the mean and standard
+deviation. 
+
+### What are the odds?
+
+
+```{r, fig.width= 9, dev = "svglite"}
+
+sds <- seq(from = 0, to = 10)
+n <- 100000 # Sidestep some randomness
+p <- purrr::map_dbl(sds, ~ {
+x <- rnorm(n,0, .)
+
+round(mean(rbinom(n,1,plogis(qlogis(0.2) + log(2)*x)) == 1) * 100, 2)
+  
+})
+
+pdat <- data.frame(p,sds)
+
+pdat %>%
+  ggplot2::ggplot(ggplot2::aes(x = sds, y = p)) +
+  ggplot2::geom_point(size = 4, alpha = 0.9, colour = "black",fill = "#5070A2", pch= 21) +
+  ggplot2::theme_minimal(base_size = 16) +
+  ggplot2::labs(
+    y = "Percent with response",
+    x = "Standard deviation of continuous characteristic",
+    title = stringr::str_wrap("In logistic regression the percentage of patients with a binary outcome changes if the standard
+    deviation of continuous characteristic changes", 70)
+  )
+```
+
+------------------------------------------------------------------------
+
+For binary outcomes like objective response at a given timepoint we will usually
+assume assume that patient characteristics change the odds of response. This is
+mostly a mathematical convenience since it ensures predictions will always be
+valid probabilities (relative risks and risk differences will sometimes predict
+impossible values). A drawback of odds ratios (and hazard ratios) is that they
+are non-linear transformations which in our case means that if we really think the effect
+of x is linear on the logit scale (or log hazard) the mean probability of response
+will depend on both the mean and standard deviation of continuous predictors. 
+
+### ITC Implications?
+
+```{r dev = "svglite", fig.width = 9}
+p5 <- pdat %>% dplyr::filter(sds == 5) %>% dplyr::pull(p)
+n <- 300
+pdat %>%
+  dplyr::mutate(p = p /100,
+                p_comp = p5/100,
+                expa = n*p,
+                expb = n-expa,
+                expc = n*p_comp,
+                expd = n-expc,
+                var = 1/expa + 1/expb + 1/expc + 1/expd,
+                or = qlogis(p) - qlogis(p_comp),
+                upr = or + 1.96 * sqrt(var),
+                lwr = or - 1.96 * sqrt(var)) %>%
+  dplyr::select(p, p_comp,or, upr, lwr,sds) %>%
+  ggplot2::ggplot(ggplot2::aes(x = sds, y = or, ymin = lwr, ymax = upr)) +
+  ggplot2::geom_hline(yintercept = 0, linetype = 2) +
+  ggplot2::geom_pointrange(colour = "#375180") +
+  ggplot2::coord_flip() +
+  ggplot2::scale_y_continuous(labels = function(x) round(exp(x),2)) +
+  ggplot2::theme_minimal(base_size = 16) +
+  ggplot2::labs(x = stringr::str_wrap("Standard deviation of continuous characteristic in your trial",40),
+                y = stringr::str_wrap("Odds Ratio and 95% CI  (Your Drug vs Comparator)"),
+                caption = "Confidence intervals are illustrative and based of observed outcome with n = 300 for each group",
+                title = stringr::str_wrap("Reweighting methods can come to different conclusions adjusting to mean only in nonlinear models", 60)) +
+  ggplot2::annotate(geom= "label", x = 5.5, y = log(0.61),label = "Comparator SD = 5",
+                    fill = "#375180",
+                    colour = "white")
+  
+```
+
+------------------------------------------------------------------------
+
+If both treatments have the exact same treatment effect the failure to
+consider adjustment of both means and standard deviations can lead to conclusions
+that will be biased if the outcome model is nonlinear (eg, odds ratios, hazard ratios).
+Remember that the goal of propensity based methods is balance, and so we should
+consider [balance of higher-moments in addition to means](https://onlinelibrary.wiley.com/doi/10.1002/sim.6607)
+
+
